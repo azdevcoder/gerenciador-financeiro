@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gráficos - Gerenciador de Custos e Investimentos</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+  body {
+    font-family: 'Poppins', sans-serif;
+    margin: 0; padding: 1rem;
+    background: #2c3e50;
+    color: #ecf0f1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+  }
+  h1 {
+    margin-bottom: 1rem;
+    color: #ecf0f1;
+    text-align: center;
+  }
+  .container {
+    max-width: 800px;
+    width: 100%;
+    background: #34495e;
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  label {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+  input[type="date"] {
+    padding: 0.5rem;
+    border-radius: 6px;
+    border: 1px solid #7f8c8d;
+    font-size: 1rem;
+    width: 150px;
+    background: #ecf0f1;
+    color: #2c3e50;
+    margin-right: 1rem;
+  }
+  .filters {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  button {
+    background: #3498db;
+    color: white;
+    border: none;
+    padding: 0.6rem 1.25rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  button:hover {
+    background: #2980b9;
+  }
+  canvas {
+    background: #2c3e50;
+    border-radius: 8px;
+  }
+  footer {
+    margin-top: auto;
+    font-size: 0.875rem;
+    color: #bdc3c7;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+  <h1>Gráficos - Gerenciador de Custos e Investimentos</h1>
+  <div class="container">
+    <div class="filters" aria-label="Filtros de período para gráficos">
+      <div>
+        <label for="startDate">Data Início:</label>
+        <input type="date" id="startDate" aria-describedby="startDateDesc" />
+      </div>
+      <div>
+        <label for="endDate">Data Fim:</label>
+        <input type="date" id="endDate" aria-describedby="endDateDesc" />
+      </div>
+      <div>
+        <button id="btnUpdate">Atualizar Gráficos</button>
+      </div>
+    </div>
+
+    <section aria-label="Gráfico de barras de custos, receitas e investimentos">
+      <canvas id="barChart" height="250" aria-label="Gráfico de barras de custos, receitas e investimentos"></canvas>
+    </section>
+
+    <section aria-label="Gráfico de pizza da distribuição percentual por categoria">
+      <canvas id="pieChart" height="250" aria-label="Gráfico de pizza da distribuição percentual por categoria"></canvas>
+    </section>
+  </div>
+  <footer>© 2025 AzDev Coder </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+  (function(){
+    const STORAGE_KEY = 'gerenciadorItens';
+
+    const startDateInput = document.getElementById('startDate');
+    const endDateInput = document.getElementById('endDate');
+    const btnUpdate = document.getElementById('btnUpdate');
+
+    const barCtx = document.getElementById('barChart').getContext('2d');
+    const pieCtx = document.getElementById('pieChart').getContext('2d');
+
+    let barChart = null;
+    let pieChart = null;
+
+    // Set default date inputs (last 30 days)
+    const today = new Date();
+    const priorDate = new Date();
+    priorDate.setDate(today.getDate() - 29);
+
+    startDateInput.value = priorDate.toISOString().substring(0,10);
+    endDateInput.value = today.toISOString().substring(0,10);
+
+    function loadItems(){
+      let stored = localStorage.getItem(STORAGE_KEY);
+      if(!stored) return [];
+      try {
+        return JSON.parse(stored);
+      } catch(e) {
+        return [];
+      }
+    }
+
+    function filterByDate(items, start, end){
+      const s = new Date(start);
+      const e = new Date(end);
+      e.setHours(23,59,59,999);
+      return items.filter(item => {
+        const d = new Date(item.date);
+        return !isNaN(d) && d >= s && d <= e;
+      });
+    }
+
+    function groupByDateCategory(items){
+      // Group items by date (yyyy-mm-dd) and category sums
+      const grouped = {};
+      items.forEach(item => {
+        const dstr = item.date; // assume YYYY-MM-DD stored
+        if(!grouped[dstr]) grouped[dstr] = { custo:0, receita:0, investimento:0 };
+        if(item.type === 'custo') grouped[dstr].custo += item.value;
+        else if(item.type === 'receita') grouped[dstr].receita += item.value;
+        else if(item.type === 'investimento') grouped[dstr].investimento += item.value;
+      });
+      return grouped;
+    }
+
+    function prepareBarChartData(grouped, start, end){
+      const labels = [];
+      const custos = [];
+      const receitas = [];
+      const investimentos = [];
+
+      let current = new Date(start);
+      const endDate = new Date(end);
+      while(current <= endDate){
+        const dstr = current.toISOString().substring(0,10);
+        labels.push(dstr.split('-').reverse().join('/')); // Display DD/MM/YYYY
+        if(grouped[dstr]){
+          custos.push(grouped[dstr].custo);
+          receitas.push(grouped[dstr].receita);
+          investimentos.push(grouped[dstr].investimento);
+        } else {
+          custos.push(0);
+          receitas.push(0);
+          investimentos.push(0);
+        }
+        current.setDate(current.getDate()+1);
+      }
+
+      return { labels, custos, receitas, investimentos };
+    }
+
+    function preparePieChartData(items){
+      let totalCusto = 0, totalReceita = 0, totalInvestimentos = 0;
+      items.forEach(item => {
+        if(item.type === 'custo') totalCusto += item.value;
+        else if(item.type === 'receita') totalReceita += item.value;
+        else if(item.type === 'investimento') totalInvestimentos += item.value;
+      });
+      return {
+        labels: ['Custos', 'Receitas', 'Investimentos'],
+        data: [totalCusto, totalReceita, totalInvestimentos]
+      };
+    }
+
+    function createOrUpdateBarChart(data){
+      if(barChart) barChart.destroy();
+      barChart = new Chart(barCtx, {
+        type: 'bar',
+        data: {
+          labels: data.labels,
+          datasets: [
+            {
+              label: 'Custos',
+              data: data.custos,
+              backgroundColor: 'rgba(192, 57, 43, 0.7)',
+              borderColor: 'rgba(192, 57, 43, 1)',
+              borderWidth: 1
+            },
+            {
+              label: 'Receitas',
+              data: data.receitas,
+              backgroundColor: 'rgba(41, 128, 185, 0.7)',
+              borderColor: 'rgba(41, 128, 185, 1)',
+              borderWidth: 1
+            },
+            {
+              label: 'Investimentos',
+              data: data.investimentos,
+              backgroundColor: 'rgba(142, 68, 173, 0.7)',
+              borderColor: 'rgba(142, 68, 173, 1)',
+              borderWidth: 1
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { stacked: false, ticks: { maxRotation: 90, minRotation: 45 } },
+            y: { beginAtZero: true }
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { color: '#ecf0f1' } },
+            tooltip: { mode: 'index', intersect: false }
+          }
+        }
+      });
+    }
+
+    function createOrUpdatePieChart(data){
+      if(pieChart) pieChart.destroy();
+      pieChart = new Chart(pieCtx, {
+        type: 'doughnut',
+        data: {
+          labels: data.labels,
+          datasets: [{
+            data: data.data,
+            backgroundColor: [
+              'rgba(192, 57, 43, 0.8)',
+              'rgba(41, 128, 185, 0.8)',
+              'rgba(142, 68, 173, 0.8)'
+            ],
+            borderColor: '#2c3e50',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'bottom', labels: { color: '#ecf0f1' } },
+            tooltip: { callbacks: {
+              label: context => {
+                const label = context.label || '';
+                const value = context.parsed || 0;
+                return `${label}: R$ ${value.toFixed(2).replace('.', ',')}`;
+              }
+            }}
+          }
+        }
+      });
+    }
+
+    function updateCharts(){
+      const start = startDateInput.value;
+      const end = endDateInput.value;
+      if(!start || !end){
+        alert('Selecione as datas para filtrar os gráficos.');
+        return;
+      }
+      if(new Date(start) > new Date(end)){
+        alert('Data início não pode ser maior que a data fim.');
+        return;
+      }
+      const allItems = loadItems();
+      const filteredItems = filterByDate(allItems, start, end);
+      const grouped = groupByDateCategory(filteredItems);
+      const barData = prepareBarChartData(grouped, start, end);
+      const pieData = preparePieChartData(filteredItems);
+      createOrUpdateBarChart(barData);
+      createOrUpdatePieChart(pieData);
+    }
+
+    btnUpdate.addEventListener('click', updateCharts);
+
+    // Atualizar os gráficos inicialmente
+    updateCharts();
+  })();
+  </script>
+</body>
+</html>
